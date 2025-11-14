@@ -3,3 +3,6 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "gunicorn app:app --bind 0.0.0.0:$PORT"
+
+[build.environment]
+PYTHON_VERSION = "3.9"
