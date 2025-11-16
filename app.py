@@ -1,7 +1,7 @@
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from config import Config
-from models import db, create_tables  # Import db from models
+from models import db, create_tables
 import os
 
 # Import blueprints
@@ -13,12 +13,17 @@ from admin_routes import admin_bp
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Enable CORS for all routes with specific origins
-CORS(app, origins=[
-    "https://kawan-umkm.netlify.app", 
-    "http://localhost:3000",
-    "https://kawan-umkm-backend-production.up.railway.app"
-])
+# PERBAIKAN: Konfigurasi CORS yang lebih lengkap
+CORS(app, 
+     origins=[
+         "https://kawan-umkm-sekawanpapat.netlify.app",
+         "http://localhost:3000",
+         "https://kawan-umkm-backend-production.up.railway.app"
+     ],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     supports_credentials=True,
+     max_age=3600)
 
 # Initialize SQLAlchemy
 db.init_app(app)
@@ -31,16 +36,27 @@ with app.app_context():
     create_tables()
     print("✅ Database initialized!")
 
-# PERBAIKAN: Register blueprints hanya sekali dengan prefix yang konsisten
+# Register blueprints dengan url_prefix
 app.register_blueprint(auth_bp, url_prefix='/api')
 app.register_blueprint(umkm_bp, url_prefix='/api')
 app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(admin_bp, url_prefix='/api')
 
-# PERBAIKAN: Hapus route ini karena sudah ada di umkm_routes.py
-# @app.route('/uploads/images/<filename>')
-# def get_image(filename):
-#     return send_from_directory('uploads/images', filename)
+# PERBAIKAN: Tambahkan handler untuk OPTIONS method (preflight)
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', 'https://kawan-umkm-sekawanpapat.netlify.app')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
+
+# PERBAIKAN: Tambahkan route untuk handle OPTIONS preflight
+@app.route('/api/umkm', methods=['OPTIONS'])
+@app.route('/api/umkm/<int:id>', methods=['OPTIONS'])
+@app.route('/api/uploads/images/<filename>', methods=['OPTIONS'])
+def options_handler(id=None, filename=None):
+    return '', 200
 
 @app.route('/health')
 def health_check():
@@ -60,7 +76,7 @@ def hello():
         }
     }
 
-# PERBAIKAN: Tambahkan error handler untuk 404
+# PERBAIKAN: Tambahkan error handler
 @app.errorhandler(404)
 def not_found(error):
     return {'error': 'Endpoint not found'}, 404
@@ -69,15 +85,23 @@ def not_found(error):
 def method_not_allowed(error):
     return {'error': 'Method not allowed'}, 405
 
+@app.errorhandler(500)
+def internal_error(error):
+    return {'error': 'Internal server error'}, 500
+
 if __name__ == '__main__':
     print("🚀 Starting Kawan UMKM Backend...")
     print("📊 Database: SQLite")
     print("🌐 Server: http://localhost:5000")
-    print("📁 Upload folder:", app.config['UPLOAD_FOLDER'])
+    print("🔧 CORS enabled for:", [
+        "https://kawan-umkm-sekawanpapat.netlify.app",
+        "http://localhost:3000"
+    ])
     
     # Print registered routes for debugging
     print("🛣️ Registered routes:")
     for rule in app.url_map.iter_rules():
-        print(f"  {rule.methods} {rule.rule}")
+        if 'static' not in rule.rule:
+            print(f"  {rule.methods} {rule.rule}")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
