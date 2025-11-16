@@ -105,31 +105,47 @@ def create_umkm():
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
         
-@umkm_bp.route('/umkm', methods=['GET'])
-def get_all_umkm():
+@umkm_bp.route('/umkm/<int:id>', methods=['GET'])
+def get_umkm_by_id(id):
     try:
-        umkms = UMKM.query.filter_by(is_approved=True).all()
-        result = []
+        print(f"🔍 Fetching UMKM with ID: {id}")
         
-        for umkm in umkms:
-            result.append({
-                'id': umkm.id,
-                'name': umkm.name,
-                'description': umkm.description,
-                'category': umkm.category,
-                'address': umkm.address,
-                'contact': umkm.phone,  # Return as 'contact'
-                'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
-                'latitude': umkm.latitude,
-                'longitude': umkm.longitude,
-                'hours': umkm.hours,
-                'created_at': umkm.created_at.isoformat() if umkm.created_at else None
-            })
+        umkm = UMKM.query.get(id)
+        if not umkm:
+            print(f"❌ UMKM with ID {id} not found")
+            return jsonify({'error': 'UMKM not found'}), 404
         
-        return jsonify(result)
-    
+        # Calculate average rating
+        reviews = Review.query.filter_by(umkm_id=id).all()
+        avg_rating = 0
+        if reviews:
+            avg_rating = sum(review.rating for review in reviews) / len(reviews)
+        
+        # Build response with consistent field names
+        umkm_response = {
+            'id': umkm.id,
+            'name': umkm.name,
+            'category': umkm.category,
+            'description': umkm.description,
+            'address': umkm.address,
+            'contact': umkm.phone,  # Map 'phone' to 'contact' for frontend
+            'phone': umkm.phone,    # Keep original for compatibility
+            'image_path': umkm.image_path,
+            'image_url': f"/api/uploads/images/{umkm.image_path}",
+            'latitude': umkm.latitude,
+            'longitude': umkm.longitude,
+            'hours': umkm.hours,
+            'owner_name': umkm.owner.name if umkm.owner else 'Tidak diketahui',
+            'avg_rating': round(avg_rating, 1),
+            'review_count': len(reviews),
+            'created_at': umkm.created_at.isoformat() if umkm.created_at else None
+        }
+        
+        print(f"✅ UMKM found: {umkm_response['name']}")
+        return jsonify(umkm_response)
+        
     except Exception as e:
-        print(f"❌ Error fetching UMKM: {str(e)}")
+        print(f"❌ Error fetching UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @umkm_bp.route('/uploads/images/<filename>')
