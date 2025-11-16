@@ -3,6 +3,7 @@ from flask_cors import CORS
 from config import Config
 from models import db, create_tables, UMKM, Review
 import os
+from routes import register_routes
 
 # Import blueprints
 from auth import auth_bp
@@ -41,6 +42,8 @@ app.register_blueprint(auth_bp, url_prefix='/api')
 app.register_blueprint(umkm_bp, url_prefix='/api')
 app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(admin_bp, url_prefix='/api')
+
+register_routes(app)
 
 # PERBAIKAN: Tambahkan route langsung untuk /api/umkm
 @app.route('/api/umkm', methods=['GET', 'POST', 'OPTIONS'])
