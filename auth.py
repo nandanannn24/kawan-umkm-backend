@@ -3,7 +3,7 @@ import jwt
 import datetime
 from sqlalchemy.exc import IntegrityError
 from config import Config
-from models import db, User, hash_password, check_password  # SQLAlchemy models
+from models import db, User, hash_password, check_password
 
 auth_bp = Blueprint('auth', __name__)
 
