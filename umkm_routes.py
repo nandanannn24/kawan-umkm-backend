@@ -2,7 +2,8 @@ import os
 import uuid
 from flask import Blueprint, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from models import db, UMKM  # Now this will work
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from models import db, UMKM, User, Review  # Pastikan semua model diimport
 
 umkm_bp = Blueprint('umkm', __name__)
 
@@ -15,7 +16,51 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@umkm_bp.route('/umkm', methods=['POST'])
+# PERBAIKI: Pastikan semua endpoint dimulai dengan /api
+@umkm_bp.route('/api/umkm', methods=['GET', 'POST'])
+def handle_umkm():
+    if request.method == 'GET':
+        return get_all_umkm()
+    elif request.method == 'POST':
+        return create_umkm()
+
+def get_all_umkm():
+    try:
+        print("📥 Fetching all UMKM...")
+        umkms = UMKM.query.filter_by(is_approved=True).all()
+        result = []
+        
+        for umkm in umkms:
+            # Calculate average rating
+            reviews = Review.query.filter_by(umkm_id=umkm.id).all()
+            avg_rating = 0
+            if reviews:
+                avg_rating = sum(review.rating for review in reviews) / len(reviews)
+            
+            result.append({
+                'id': umkm.id,
+                'name': umkm.name,
+                'description': umkm.description,
+                'category': umkm.category,
+                'address': umkm.address,
+                'contact': umkm.phone,
+                'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
+                'image_path': umkm.image_path,
+                'latitude': umkm.latitude,
+                'longitude': umkm.longitude,
+                'hours': umkm.hours,
+                'avg_rating': round(avg_rating, 1),
+                'review_count': len(reviews),
+                'created_at': umkm.created_at.isoformat() if umkm.created_at else None
+            })
+        
+        print(f"✅ Found {len(result)} UMKM")
+        return jsonify(result)
+    
+    except Exception as e:
+        print(f"❌ Error fetching UMKM: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 def create_umkm():
     try:
         print("📥 Received UMKM creation request")
@@ -45,11 +90,9 @@ def create_umkm():
         
         print(f"✅ Image saved: {unique_filename}")
         
-        # Get form data - FIXED: Get owner_id from authentication
-        owner_id = get_jwt_identity() if hasattr(request, 'jwt_identity') else 1
-        
+        # Get form data
         umkm_data = {
-            'owner_id': owner_id,
+            'owner_id': 1,  # Temporary - replace with actual user ID from auth
             'name': request.form.get('name'),
             'category': request.form.get('category'),
             'description': request.form.get('description', ''),
@@ -57,8 +100,8 @@ def create_umkm():
             'latitude': float(request.form.get('latitude')) if request.form.get('latitude') else None,
             'longitude': float(request.form.get('longitude')) if request.form.get('longitude') else None,
             'address': request.form.get('address'),
-            'phone': request.form.get('contact'),  # Map 'contact' to 'phone'
-            'hours': request.form.get('hours', '09:00-17:00'),  # Default value
+            'phone': request.form.get('contact'),
+            'hours': request.form.get('hours', '09:00-17:00'),
             'is_approved': True
         }
         
@@ -70,29 +113,29 @@ def create_umkm():
         
         print("📝 UMKM data to save:", umkm_data)
         
-        # Create UMKM using SQLAlchemy
+        # Create UMKM
         new_umkm = UMKM(**umkm_data)
         db.session.add(new_umkm)
         db.session.commit()
         
         print(f"✅ UMKM created successfully: {new_umkm.id}")
         
-        # Build response - FIXED: Use correct field names for frontend
+        # Build response
         umkm_response = {
             'id': new_umkm.id,
             'name': new_umkm.name,
             'category': new_umkm.category,
             'description': new_umkm.description,
             'address': new_umkm.address,
-            'contact': new_umkm.phone,  # Return as 'contact' for frontend
-            'image_path': new_umkm.image_path,  # Keep for compatibility
-            'image_url': f"/api/uploads/images/{new_umkm.image_path}",  # Relative path
+            'contact': new_umkm.phone,
+            'image_path': new_umkm.image_path,
+            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{new_umkm.image_path}",
             'latitude': new_umkm.latitude,
             'longitude': new_umkm.longitude,
             'hours': new_umkm.hours,
-            'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None,
             'avg_rating': 0,
-            'review_count': 0
+            'review_count': 0,
+            'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None
         }
         
         return jsonify({
@@ -104,8 +147,8 @@ def create_umkm():
         print(f"❌ Error creating UMKM: {str(e)}")
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-        
-@umkm_bp.route('/umkm/<int:id>', methods=['GET'])
+
+@umkm_bp.route('/api/umkm/<int:id>', methods=['GET'])
 def get_umkm_by_id(id):
     try:
         print(f"🔍 Fetching UMKM with ID: {id}")
@@ -115,23 +158,23 @@ def get_umkm_by_id(id):
             print(f"❌ UMKM with ID {id} not found")
             return jsonify({'error': 'UMKM not found'}), 404
         
-        # Calculate average rating
+        # Calculate average rating and reviews
         reviews = Review.query.filter_by(umkm_id=id).all()
         avg_rating = 0
         if reviews:
             avg_rating = sum(review.rating for review in reviews) / len(reviews)
         
-        # Build response with consistent field names
+        # Build response
         umkm_response = {
             'id': umkm.id,
             'name': umkm.name,
             'category': umkm.category,
             'description': umkm.description,
             'address': umkm.address,
-            'contact': umkm.phone,  # Map 'phone' to 'contact' for frontend
-            'phone': umkm.phone,    # Keep original for compatibility
+            'contact': umkm.phone,
+            'phone': umkm.phone,
             'image_path': umkm.image_path,
-            'image_url': f"/api/uploads/images/{umkm.image_path}",
+            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
             'latitude': umkm.latitude,
             'longitude': umkm.longitude,
             'hours': umkm.hours,
@@ -148,10 +191,66 @@ def get_umkm_by_id(id):
         print(f"❌ Error fetching UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@umkm_bp.route('/uploads/images/<filename>')
+@umkm_bp.route('/api/uploads/images/<filename>')
 def serve_image(filename):
     try:
         return send_from_directory(UPLOAD_FOLDER, filename)
     except Exception as e:
         print(f"❌ Error serving image {filename}: {str(e)}")
         return jsonify({'error': 'Image not found'}), 404
+
+# Tambahkan endpoint untuk reviews
+@umkm_bp.route('/api/umkm/<int:id>/reviews', methods=['GET'])
+def get_umkm_reviews(id):
+    try:
+        print(f"🔍 Fetching reviews for UMKM {id}")
+        reviews = Review.query.filter_by(umkm_id=id).join(User).all()
+        
+        reviews_data = []
+        for review in reviews:
+            reviews_data.append({
+                'id': review.id,
+                'user_id': review.user_id,
+                'user_name': review.user.name,
+                'rating': review.rating,
+                'comment': review.comment,
+                'created_at': review.created_at.isoformat() if review.created_at else None
+            })
+        
+        print(f"✅ Found {len(reviews_data)} reviews")
+        return jsonify(reviews_data)
+        
+    except Exception as e:
+        print(f"❌ Error fetching reviews for UMKM {id}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@umkm_bp.route('/api/umkm/<int:id>/reviews', methods=['POST'])
+def add_umkm_review(id):
+    try:
+        data = request.get_json()
+        print(f"📥 Adding review for UMKM {id}:", data)
+        
+        # Validate required fields
+        if not data.get('rating') or not data.get('comment'):
+            return jsonify({'error': 'Rating and comment are required'}), 400
+        
+        # In production, get user_id from JWT token
+        user_id = 1  # Temporary
+        
+        new_review = Review(
+            umkm_id=id,
+            user_id=user_id,
+            rating=data['rating'],
+            comment=data['comment']
+        )
+        
+        db.session.add(new_review)
+        db.session.commit()
+        
+        print("✅ Review added successfully")
+        return jsonify({'message': 'Review added successfully'}), 201
+        
+    except Exception as e:
+        print(f"❌ Error adding review for UMKM {id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
