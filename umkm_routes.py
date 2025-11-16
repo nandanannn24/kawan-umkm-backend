@@ -15,13 +15,15 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Routes tanpa /api prefix karena sudah ditangani di app.py
-@umkm_bp.route('/umkm', methods=['GET', 'POST'])
+# Routes
+@umkm_bp.route('/umkm', methods=['GET', 'POST', 'OPTIONS'])
 def handle_umkm():
     if request.method == 'GET':
         return get_all_umkm()
     elif request.method == 'POST':
         return create_umkm()
+    elif request.method == 'OPTIONS':
+        return '', 200  # Handle preflight
 
 def get_all_umkm():
     try:
@@ -36,6 +38,10 @@ def get_all_umkm():
             if reviews:
                 avg_rating = sum(review.rating for review in reviews) / len(reviews)
             
+            # PERBAIKAN: Gunakan base URL yang dinamis
+            base_url = request.host_url.rstrip('/')
+            image_url = f"{base_url}api/uploads/images/{umkm.image_path}" if umkm.image_path else None
+            
             result.append({
                 'id': umkm.id,
                 'name': umkm.name,
@@ -43,7 +49,7 @@ def get_all_umkm():
                 'category': umkm.category,
                 'address': umkm.address,
                 'contact': umkm.phone,
-                'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
+                'image_url': image_url,
                 'image_path': umkm.image_path,
                 'latitude': umkm.latitude,
                 'longitude': umkm.longitude,
@@ -63,8 +69,6 @@ def get_all_umkm():
 def create_umkm():
     try:
         print("📥 Received UMKM creation request")
-        print("Files received:", request.files)
-        print("Form data:", request.form)
         
         # Check if image file is provided
         if 'image' not in request.files:
@@ -91,7 +95,7 @@ def create_umkm():
         
         # Get form data
         umkm_data = {
-            'owner_id': 1,  # Temporary - replace with actual user ID from auth
+            'owner_id': 1,
             'name': request.form.get('name'),
             'category': request.form.get('category'),
             'description': request.form.get('description', ''),
@@ -110,8 +114,6 @@ def create_umkm():
             if not umkm_data.get(field):
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
-        print("📝 UMKM data to save:", umkm_data)
-        
         # Create UMKM
         new_umkm = UMKM(**umkm_data)
         db.session.add(new_umkm)
@@ -119,7 +121,10 @@ def create_umkm():
         
         print(f"✅ UMKM created successfully: {new_umkm.id}")
         
-        # Build response
+        # Build response dengan URL dinamis
+        base_url = request.host_url.rstrip('/')
+        image_url = f"{base_url}api/uploads/images/{new_umkm.image_path}"
+        
         umkm_response = {
             'id': new_umkm.id,
             'name': new_umkm.name,
@@ -128,7 +133,7 @@ def create_umkm():
             'address': new_umkm.address,
             'contact': new_umkm.phone,
             'image_path': new_umkm.image_path,
-            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{new_umkm.image_path}",
+            'image_url': image_url,
             'latitude': new_umkm.latitude,
             'longitude': new_umkm.longitude,
             'hours': new_umkm.hours,
@@ -147,8 +152,11 @@ def create_umkm():
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
-@umkm_bp.route('/umkm/<int:id>', methods=['GET'])
+@umkm_bp.route('/umkm/<int:id>', methods=['GET', 'OPTIONS'])
 def get_umkm_by_id(id):
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
         print(f"🔍 Fetching UMKM with ID: {id}")
         
@@ -163,7 +171,10 @@ def get_umkm_by_id(id):
         if reviews:
             avg_rating = sum(review.rating for review in reviews) / len(reviews)
         
-        # Build response
+        # Build response dengan URL dinamis
+        base_url = request.host_url.rstrip('/')
+        image_url = f"{base_url}api/uploads/images/{umkm.image_path}" if umkm.image_path else None
+        
         umkm_response = {
             'id': umkm.id,
             'name': umkm.name,
@@ -173,7 +184,7 @@ def get_umkm_by_id(id):
             'contact': umkm.phone,
             'phone': umkm.phone,
             'image_path': umkm.image_path,
-            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
+            'image_url': image_url,
             'latitude': umkm.latitude,
             'longitude': umkm.longitude,
             'hours': umkm.hours,
@@ -190,8 +201,11 @@ def get_umkm_by_id(id):
         print(f"❌ Error fetching UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@umkm_bp.route('/uploads/images/<filename>')
+@umkm_bp.route('/uploads/images/<filename>', methods=['GET', 'OPTIONS'])
 def serve_image(filename):
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
         return send_from_directory(UPLOAD_FOLDER, filename)
     except Exception as e:
@@ -199,7 +213,15 @@ def serve_image(filename):
         return jsonify({'error': 'Image not found'}), 404
 
 # Endpoint untuk reviews
-@umkm_bp.route('/umkm/<int:id>/reviews', methods=['GET'])
+@umkm_bp.route('/umkm/<int:id>/reviews', methods=['GET', 'POST', 'OPTIONS'])
+def handle_reviews(id):
+    if request.method == 'OPTIONS':
+        return '', 200
+    elif request.method == 'GET':
+        return get_umkm_reviews(id)
+    elif request.method == 'POST':
+        return add_umkm_review(id)
+
 def get_umkm_reviews(id):
     try:
         print(f"🔍 Fetching reviews for UMKM {id}")
@@ -223,7 +245,6 @@ def get_umkm_reviews(id):
         print(f"❌ Error fetching reviews for UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@umkm_bp.route('/umkm/<int:id>/reviews', methods=['POST'])
 def add_umkm_review(id):
     try:
         data = request.get_json()
@@ -233,7 +254,6 @@ def add_umkm_review(id):
         if not data.get('rating') or not data.get('comment'):
             return jsonify({'error': 'Rating and comment are required'}), 400
         
-        # In production, get user_id from JWT token
         user_id = 1  # Temporary
         
         new_review = Review(
