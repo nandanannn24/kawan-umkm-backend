@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify
 import jwt
 import datetime
+from sqlalchemy.exc import IntegrityError
 from config import Config
-from models import hash_password, check_password, get_db_connection
-import sqlite3
+from models import db, User, hash_password, check_password  # SQLAlchemy models
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -27,37 +27,44 @@ def register():
     if not name or not email or not password:
         return jsonify({'error': 'Name, email, and password are required'}), 400
 
-    hashed_password = hash_password(password)
+    # Check if user already exists using SQLAlchemy
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({'error': 'Email already exists'}), 400
 
-    conn = get_db_connection()
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-            (name, email, hashed_password, role)
-        )
-        user_id = cursor.lastrowid
-        conn.commit()
+        hashed_password = hash_password(password)
         
-        token = create_jwt_token(user_id, email, role)
+        # Create new user with SQLAlchemy
+        new_user = User(
+            name=name,
+            email=email,
+            password=hashed_password,
+            role=role
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+
+        token = create_jwt_token(new_user.id, new_user.email, new_user.role)
         
         return jsonify({
             'message': 'User registered successfully',
             'token': token,
             'user': {
-                'id': user_id,
-                'name': name,
-                'email': email,
-                'role': role
+                'id': new_user.id,
+                'name': new_user.name,
+                'email': new_user.email,
+                'role': new_user.role
             }
         }), 201
         
-    except sqlite3.IntegrityError:
+    except IntegrityError:
+        db.session.rollback()
         return jsonify({'error': 'Email already exists'}), 400
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
-    finally:
-        conn.close()
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -68,28 +75,27 @@ def login():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
 
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
-        user = cursor.fetchone()
+    # Find user using SQLAlchemy
+    user = User.query.filter_by(email=email).first()
 
-        if user and check_password(password, user['password']):
-            token = create_jwt_token(user['id'], user['email'], user['role'])
-            return jsonify({
-                'message': 'Login successful',
-                'token': token,
-                'user': {
-                    'id': user['id'],
-                    'name': user['name'],
-                    'email': user['email'],
-                    'role': user['role']
-                }
-            }), 200
-        else:
-            return jsonify({'error': 'Invalid email or password'}), 401
-    finally:
-        conn.close()
+    if user and check_password(password, user.password):
+        token = create_jwt_token(user.id, user.email, user.role)
+        return jsonify({
+            'message': 'Login successful',
+            'token': token,
+            'user': {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'role': user.role
+            }
+        }), 200
+    else:
+        return jsonify({'error': 'Invalid email or password'}), 401
+
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    return jsonify({'message': 'Logout successful'}), 200
 
 def token_required(f):
     from functools import wraps
