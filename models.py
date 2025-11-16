@@ -80,3 +80,34 @@ def create_tables():
     print("🔧 Creating database tables...")
     db.create_all()
     print("✅ Database tables created!")
+
+# Tambahkan fungsi helper untuk kompatibilitas
+def get_db_connection():
+    """Helper function for compatibility with existing code"""
+    import sqlite3
+    from config import Config
+    conn = sqlite3.connect(Config.SQLITE_DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# Password reset token functions (simplified)
+def create_password_reset_token(user_id):
+    """Create password reset token - simplified version"""
+    import uuid
+    return str(uuid.uuid4())
+
+def verify_password_reset_token(token):
+    """Verify password reset token - simplified version"""
+    # For now, return a dummy user ID
+    return 1
+
+def mark_token_used(token):
+    """Mark token as used - simplified version"""
+    pass
+
+# Email service placeholder
+class EmailService:
+    def send_password_reset_email(self, email, token, name):
+        print(f"📧 Password reset email would be sent to: {email}")
+        print(f"🔑 Token: {token}")
+        return True
