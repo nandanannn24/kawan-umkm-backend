@@ -2,8 +2,7 @@ import os
 import uuid
 from flask import Blueprint, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, UMKM, User, Review  # Pastikan semua model diimport
+from models import db, UMKM, User, Review
 
 umkm_bp = Blueprint('umkm', __name__)
 
@@ -16,8 +15,8 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# PERBAIKI: Pastikan semua endpoint dimulai dengan /api
-@umkm_bp.route('/api/umkm', methods=['GET', 'POST'])
+# Routes tanpa /api prefix karena sudah ditangani di app.py
+@umkm_bp.route('/umkm', methods=['GET', 'POST'])
 def handle_umkm():
     if request.method == 'GET':
         return get_all_umkm()
@@ -148,7 +147,7 @@ def create_umkm():
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
-@umkm_bp.route('/api/umkm/<int:id>', methods=['GET'])
+@umkm_bp.route('/umkm/<int:id>', methods=['GET'])
 def get_umkm_by_id(id):
     try:
         print(f"🔍 Fetching UMKM with ID: {id}")
@@ -191,7 +190,7 @@ def get_umkm_by_id(id):
         print(f"❌ Error fetching UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@umkm_bp.route('/api/uploads/images/<filename>')
+@umkm_bp.route('/uploads/images/<filename>')
 def serve_image(filename):
     try:
         return send_from_directory(UPLOAD_FOLDER, filename)
@@ -199,8 +198,8 @@ def serve_image(filename):
         print(f"❌ Error serving image {filename}: {str(e)}")
         return jsonify({'error': 'Image not found'}), 404
 
-# Tambahkan endpoint untuk reviews
-@umkm_bp.route('/api/umkm/<int:id>/reviews', methods=['GET'])
+# Endpoint untuk reviews
+@umkm_bp.route('/umkm/<int:id>/reviews', methods=['GET'])
 def get_umkm_reviews(id):
     try:
         print(f"🔍 Fetching reviews for UMKM {id}")
@@ -224,7 +223,7 @@ def get_umkm_reviews(id):
         print(f"❌ Error fetching reviews for UMKM {id}: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@umkm_bp.route('/api/umkm/<int:id>/reviews', methods=['POST'])
+@umkm_bp.route('/umkm/<int:id>/reviews', methods=['POST'])
 def add_umkm_review(id):
     try:
         data = request.get_json()
