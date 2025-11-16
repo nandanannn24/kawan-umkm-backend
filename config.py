@@ -6,7 +6,14 @@ load_dotenv()
 
 class Config:
     BASEDIR = os.path.abspath(os.path.dirname(__file__))
+    
+    # SQLAlchemy configuration
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(BASEDIR, 'kawan_umkm.db')}"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # For backward compatibility
     SQLITE_DB = os.path.join(BASEDIR, 'kawan_umkm.db')
+    
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-here')
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key-here')
     UPLOAD_FOLDER = os.path.join(BASEDIR, 'uploads', 'images')
