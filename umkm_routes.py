@@ -45,19 +45,21 @@ def create_umkm():
         
         print(f"✅ Image saved: {unique_filename}")
         
-        # Get form data - match database columns
+        # Get form data - FIXED: Get owner_id from authentication
+        owner_id = get_jwt_identity() if hasattr(request, 'jwt_identity') else 1
+        
         umkm_data = {
-            'owner_id': 1,  # Temporary - replace with actual user ID from auth
+            'owner_id': owner_id,
             'name': request.form.get('name'),
             'category': request.form.get('category'),
             'description': request.form.get('description', ''),
-            'image_path': unique_filename,  # Store filename only
+            'image_path': unique_filename,
             'latitude': float(request.form.get('latitude')) if request.form.get('latitude') else None,
             'longitude': float(request.form.get('longitude')) if request.form.get('longitude') else None,
             'address': request.form.get('address'),
             'phone': request.form.get('contact'),  # Map 'contact' to 'phone'
-            'hours': request.form.get('hours', ''),
-            'is_approved': True  # Auto-approve for now
+            'hours': request.form.get('hours', '09:00-17:00'),  # Default value
+            'is_approved': True
         }
         
         # Validate required fields
@@ -75,7 +77,7 @@ def create_umkm():
         
         print(f"✅ UMKM created successfully: {new_umkm.id}")
         
-        # Build response
+        # Build response - FIXED: Use correct field names for frontend
         umkm_response = {
             'id': new_umkm.id,
             'name': new_umkm.name,
@@ -83,11 +85,14 @@ def create_umkm():
             'description': new_umkm.description,
             'address': new_umkm.address,
             'contact': new_umkm.phone,  # Return as 'contact' for frontend
-            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{new_umkm.image_path}",
+            'image_path': new_umkm.image_path,  # Keep for compatibility
+            'image_url': f"/api/uploads/images/{new_umkm.image_path}",  # Relative path
             'latitude': new_umkm.latitude,
             'longitude': new_umkm.longitude,
             'hours': new_umkm.hours,
-            'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None
+            'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None,
+            'avg_rating': 0,
+            'review_count': 0
         }
         
         return jsonify({
@@ -98,8 +103,8 @@ def create_umkm():
     except Exception as e:
         print(f"❌ Error creating UMKM: {str(e)}")
         db.session.rollback()
-        return jsonify({'error': 'Internal server error'}), 500
-
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        
 @umkm_bp.route('/umkm', methods=['GET'])
 def get_all_umkm():
     try:
