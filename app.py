@@ -1,44 +1,41 @@
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from config import Config
-from models import create_tables
+from models import db, create_tables  # Import db from models
 import os
 
 # Import blueprints
 from auth import auth_bp
 from umkm_routes import umkm_bp
-from user_routes import user_bp  # Pastikan import user_routes
+from user_routes import user_bp
 from admin_routes import admin_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# Initialize SQLAlchemy
+db.init_app(app)
+
 CORS(app)
 
-Config.init_app(app)
+# Create uploads directory
+os.makedirs('uploads/images', exist_ok=True)
 
-print("🔧 Initializing database...")
-create_tables()
+# Create tables within app context
+with app.app_context():
+    create_tables()
+
 print("✅ Database initialized!")
 
-# Test email configuration
-print("\n📧 Testing Email Configuration:")
-try:
-    from email_service import EmailService
-    email_service = EmailService()
-    print("✅ Email service initialized successfully")
-except Exception as e:
-    print(f"❌ Email service initialization failed: {e}")
-
-# Register blueprints - PASTIKAN URUTAN INI
+# Register blueprints
 app.register_blueprint(auth_bp, url_prefix='/api')
 app.register_blueprint(umkm_bp, url_prefix='/api')
-app.register_blueprint(user_bp, url_prefix='/api')  # Pastikan ini setelah umkm_bp
+app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(admin_bp, url_prefix='/api')
 
 @app.route('/uploads/images/<filename>')
 def get_image(filename):
-    return send_from_directory(Config.UPLOAD_FOLDER, filename)
+    return send_from_directory('uploads/images', filename)
 
 @app.route('/health')
 def health_check():
