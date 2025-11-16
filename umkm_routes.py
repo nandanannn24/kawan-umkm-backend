@@ -1,31 +1,19 @@
 import os
 import uuid
-from flask import Blueprint, request, jsonify, current_app, send_from_directory
+from flask import Blueprint, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from models import UMKM, db
+from models import db, UMKM  # Now this will work
 
 umkm_bp = Blueprint('umkm', __name__)
+
+# Create uploads directory
+UPLOAD_FOLDER = 'uploads/images'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def save_image(file):
-    if file and allowed_file(file.filename):
-        # Generate unique filename
-        file_ext = file.filename.rsplit('.', 1)[1].lower()
-        unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
-        
-        # Create uploads directory if not exists
-        upload_folder = 'uploads/images'
-        os.makedirs(upload_folder, exist_ok=True)
-        
-        file_path = os.path.join(upload_folder, unique_filename)
-        file.save(file_path)
-        
-        return unique_filename
-    return None
 
 @umkm_bp.route('/umkm', methods=['POST'])
 def create_umkm():
@@ -45,52 +33,66 @@ def create_umkm():
             print("❌ Empty filename")
             return jsonify({'error': 'No selected file'}), 400
         
-        # Save image
-        filename = save_image(file)
-        if not filename:
-            print("❌ File type not allowed")
+        # Validate file type
+        if not allowed_file(file.filename):
             return jsonify({'error': 'File type not allowed. Use PNG, JPG, JPEG, GIF, or WebP.'}), 400
         
-        print(f"✅ Image saved: {filename}")
+        # Save image
+        file_ext = file.filename.rsplit('.', 1)[1].lower()
+        unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
+        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        file.save(file_path)
         
-        # Get form data - FIXED FIELD NAMES
+        print(f"✅ Image saved: {unique_filename}")
+        
+        # Get form data - match database columns
         umkm_data = {
+            'owner_id': 1,  # Temporary - replace with actual user ID from auth
             'name': request.form.get('name'),
-            'description': request.form.get('description'),
             'category': request.form.get('category'),
+            'description': request.form.get('description', ''),
+            'image_path': unique_filename,  # Store filename only
+            'latitude': float(request.form.get('latitude')) if request.form.get('latitude') else None,
+            'longitude': float(request.form.get('longitude')) if request.form.get('longitude') else None,
             'address': request.form.get('address'),
-            'contact': request.form.get('contact'),  # Changed from 'phone'
-            'latitude': request.form.get('latitude', ''),
-            'longitude': request.form.get('longitude', ''),
-            'image_url': f"/api/uploads/images/{filename}",  # Fixed URL path
+            'phone': request.form.get('contact'),  # Map 'contact' to 'phone'
+            'hours': request.form.get('hours', ''),
+            'is_approved': True  # Auto-approve for now
         }
         
         # Validate required fields
-        required_fields = ['name', 'description', 'category', 'address', 'contact']
+        required_fields = ['name', 'category', 'address', 'phone']
         for field in required_fields:
-            if not umkm_data[field]:
+            if not umkm_data.get(field):
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
         print("📝 UMKM data to save:", umkm_data)
         
-        # Create UMKM
+        # Create UMKM using SQLAlchemy
         new_umkm = UMKM(**umkm_data)
         db.session.add(new_umkm)
         db.session.commit()
         
         print(f"✅ UMKM created successfully: {new_umkm.id}")
         
+        # Build response
+        umkm_response = {
+            'id': new_umkm.id,
+            'name': new_umkm.name,
+            'category': new_umkm.category,
+            'description': new_umkm.description,
+            'address': new_umkm.address,
+            'contact': new_umkm.phone,  # Return as 'contact' for frontend
+            'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{new_umkm.image_path}",
+            'latitude': new_umkm.latitude,
+            'longitude': new_umkm.longitude,
+            'hours': new_umkm.hours,
+            'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None
+        }
+        
         return jsonify({
             'message': 'UMKM created successfully',
-            'umkm': {
-                'id': new_umkm.id,
-                'name': new_umkm.name,
-                'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{filename}",
-                'description': new_umkm.description,
-                'category': new_umkm.category,
-                'address': new_umkm.address,
-                'contact': new_umkm.contact
-            }
+            'umkm': umkm_response
         }), 201
         
     except Exception as e:
@@ -101,28 +103,21 @@ def create_umkm():
 @umkm_bp.route('/umkm', methods=['GET'])
 def get_all_umkm():
     try:
-        umkms = UMKM.query.all()
+        umkms = UMKM.query.filter_by(is_approved=True).all()
         result = []
         
         for umkm in umkms:
-            # Convert to absolute URL for frontend
-            image_url = umkm.image_url
-            if umkm.image_url and not umkm.image_url.startswith('http'):
-                if umkm.image_url.startswith('/api/'):
-                    image_url = f"https://kawan-umkm-backend-production.up.railway.app{umkm.image_url}"
-                else:
-                    image_url = f"https://kawan-umkm-backend-production.up.railway.app/api{umkm.image_url}"
-            
             result.append({
                 'id': umkm.id,
                 'name': umkm.name,
                 'description': umkm.description,
                 'category': umkm.category,
                 'address': umkm.address,
-                'contact': umkm.contact,
-                'image_url': image_url,
+                'contact': umkm.phone,  # Return as 'contact'
+                'image_url': f"https://kawan-umkm-backend-production.up.railway.app/api/uploads/images/{umkm.image_path}",
                 'latitude': umkm.latitude,
                 'longitude': umkm.longitude,
+                'hours': umkm.hours,
                 'created_at': umkm.created_at.isoformat() if umkm.created_at else None
             })
         
@@ -132,11 +127,10 @@ def get_all_umkm():
         print(f"❌ Error fetching UMKM: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-# FIXED: Serve images from correct path
 @umkm_bp.route('/uploads/images/<filename>')
 def serve_image(filename):
     try:
-        return send_from_directory('uploads/images', filename)
+        return send_from_directory(UPLOAD_FOLDER, filename)
     except Exception as e:
         print(f"❌ Error serving image {filename}: {str(e)}")
         return jsonify({'error': 'Image not found'}), 404
