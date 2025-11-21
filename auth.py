@@ -3,7 +3,8 @@ import jwt
 import datetime
 from sqlalchemy.exc import IntegrityError
 from config import Config
-from models import db, User, hash_password, check_password
+from models import db, User, hash_password, check_password, PasswordResetToken
+from email_service import EmailService, create_password_reset_token, verify_password_reset_token, mark_token_used
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -27,7 +28,6 @@ def register():
     if not name or not email or not password:
         return jsonify({'error': 'Name, email, and password are required'}), 400
 
-    # Check if user already exists using SQLAlchemy
     existing_user = User.query.filter_by(email=email).first()
     if existing_user:
         return jsonify({'error': 'Email already exists'}), 400
@@ -35,7 +35,6 @@ def register():
     try:
         hashed_password = hash_password(password)
         
-        # Create new user with SQLAlchemy
         new_user = User(
             name=name,
             email=email,
@@ -75,7 +74,6 @@ def login():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
 
-    # Find user using SQLAlchemy
     user = User.query.filter_by(email=email).first()
 
     if user and check_password(password, user.password):
@@ -96,6 +94,101 @@ def login():
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
     return jsonify({'message': 'Logout successful'}), 200
+
+# ENDPOINT FORGOT PASSWORD - DIPERBAIKI
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            # Untuk keamanan, tetap return success meskipun email tidak ditemukan
+            return jsonify({
+                'message': 'If your email is registered, you will receive a password reset link.'
+            }), 200
+
+        # Buat token reset password
+        token = create_password_reset_token(user.id)
+        if not token:
+            return jsonify({'error': 'Failed to create reset token'}), 500
+
+        # Kirim email
+        email_service = EmailService()
+        
+        # Gunakan frontend URL yang benar untuk production
+        frontend_url = 'https://kawan-umkm-sekawanpapat.netlify.app'
+        reset_link = f"{frontend_url}/reset-password?token={token}"
+        
+        success = email_service.send_password_reset_email(
+            user.email, 
+            reset_link,  # Kirim full link, bukan hanya token
+            user.name
+        )
+
+        if success:
+            print(f"✅ Reset password email sent to {user.email}")
+            return jsonify({
+                'message': 'If your email is registered, you will receive a password reset link.'
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to send reset email. Please try again.'}), 500
+
+    except Exception as e:
+        print(f"❌ Error in forgot-password: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# ENDPOINT RESET PASSWORD - DIPERBAIKI
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    try:
+        data = request.get_json()
+        token = data.get('token')
+        new_password = data.get('newPassword')
+
+        if not token or not new_password:
+            return jsonify({'error': 'Token and new password are required'}), 400
+
+        # Verifikasi token
+        user_id = verify_password_reset_token(token)
+        if not user_id:
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        # Update password
+        hashed_password = hash_password(new_password)
+        user.password = hashed_password
+        db.session.commit()
+
+        # Tandai token sebagai sudah digunakan
+        mark_token_used(token)
+
+        return jsonify({'message': 'Password reset successfully'}), 200
+
+    except Exception as e:
+        print(f"❌ Error in reset-password: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+# ENDPOINT VERIFY TOKEN - DIPERBAIKI
+@auth_bp.route('/check-token/<token>', methods=['GET'])
+def check_token(token):
+    try:
+        user_id = verify_password_reset_token(token)
+        if user_id:
+            return jsonify({'valid': True, 'user_id': user_id}), 200
+        else:
+            return jsonify({'valid': False}), 400
+    except Exception as e:
+        print(f"❌ Error verifying token: {str(e)}")
+        return jsonify({'valid': False}), 400
 
 def token_required(f):
     from functools import wraps
