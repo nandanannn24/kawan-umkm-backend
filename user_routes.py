@@ -8,15 +8,23 @@ user_bp = Blueprint('user', __name__)
 
 def format_join_date(created_at):
     """Format created_at to Indonesian date format"""
-    if created_at:
-        month_names = [
-            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-        ]
-        month = month_names[created_at.month - 1]
-        return f"{created_at.day} {month} {created_at.year}, {created_at.hour:02d}:{created_at.minute:02d} WIB"
-    else:
-        return '2024'
+    try:
+        if created_at:
+            # Handle both string and datetime objects
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            
+            month_names = [
+                'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+            ]
+            month = month_names[created_at.month - 1]
+            return f"{created_at.day} {month} {created_at.year}"
+        else:
+            return "Tidak diketahui"
+    except Exception as e:
+        print(f"❌ Error formatting date: {e}")
+        return "Tidak diketahui"
 
 @user_bp.route('/user/profile', methods=['GET'])
 @token_required
@@ -38,7 +46,8 @@ def get_user_profile(current_user):
             'joined_date': format_join_date(user.created_at),
             'favorite_count': favorite_count,
             'review_count': review_count,
-            'rating_count': review_count
+            'rating_count': review_count,
+            'created_at': user.created_at.isoformat() if user.created_at else None
         }
 
         return jsonify(user_data), 200
@@ -94,7 +103,8 @@ def update_user_profile(current_user):
             'joined_date': format_join_date(user.created_at),
             'favorite_count': favorite_count,
             'review_count': review_count,
-            'rating_count': review_count
+            'rating_count': review_count,
+            'created_at': user.created_at.isoformat() if user.created_at else None
         }
 
         return jsonify({
@@ -140,16 +150,3 @@ def change_user_password(current_user):
         print(f"❌ Error changing password: {e}")
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
-
-# Simplified password reset - remove email dependency for now
-@user_bp.route('/forgot-password', methods=['POST'])
-def request_password_reset():
-    return jsonify({'error': 'Password reset temporarily disabled'}), 501
-
-@user_bp.route('/reset-password', methods=['POST'])
-def reset_password():
-    return jsonify({'error': 'Password reset temporarily disabled'}), 501
-
-@user_bp.route('/check-token/<token>', methods=['GET'])
-def verify_reset_token(token):
-    return jsonify({'valid': False, 'error': 'Password reset temporarily disabled'}), 400
