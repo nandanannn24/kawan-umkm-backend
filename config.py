@@ -1,25 +1,15 @@
 import os
 from dotenv import load_dotenv
 
-# Load .env file from backend directory
 load_dotenv()
 
 class Config:
     BASEDIR = os.path.abspath(os.path.dirname(__file__))
     
-    # MySQL configuration dari environment variables
-    MYSQL_HOST = os.getenv('MYSQL_HOST', 'localhost')
-    MYSQL_USER = os.getenv('MYSQL_USER', 'root')
-    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
-    MYSQL_DB = os.getenv('MYSQL_DB', 'kawan_umkm')
-    MYSQL_PORT = int(os.getenv('MYSQL_PORT', 3306))
-    
-    # SQLAlchemy configuration - gunakan MySQL
-    SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
-    # Untuk backward compatibility (jika masih perlu SQLite)
+    # SQLite configuration
     SQLITE_DB = os.path.join(BASEDIR, 'kawan_umkm.db')
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{SQLITE_DB}"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-super-secret-key-here-change-this-in-production')
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'your-jwt-secret-key-here-change-this-in-production')
@@ -46,8 +36,5 @@ class Config:
         
         # Test database configuration
         print("🗄️ Database Configuration:")
-        print(f"   MYSQL_HOST: {Config.MYSQL_HOST}")
-        print(f"   MYSQL_USER: {Config.MYSQL_USER}")
-        print(f"   MYSQL_DB: {Config.MYSQL_DB}")
-        print(f"   MYSQL_PORT: {Config.MYSQL_PORT}")
-        print(f"   MYSQL_PASSWORD: {'✅ SET' if Config.MYSQL_PASSWORD else '❌ MISSING'}")
+        print(f"   Database: SQLite")
+        print(f"   Database File: {Config.SQLITE_DB}")
