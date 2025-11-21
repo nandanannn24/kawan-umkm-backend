@@ -1,6 +1,8 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import bcrypt
+import jwt
+from config import Config
 
 db = SQLAlchemy()
 
@@ -16,9 +18,10 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    umkms = db.relationship('UMKM', backref='owner', lazy=True)
-    reviews = db.relationship('Review', backref='user', lazy=True)
-    favorites = db.relationship('Favorite', backref='user', lazy=True)
+    umkms = db.relationship('UMKM', backref='owner', lazy=True, cascade='all, delete-orphan')
+    reviews = db.relationship('Review', backref='user', lazy=True, cascade='all, delete-orphan')
+    favorites = db.relationship('Favorite', backref='user', lazy=True, cascade='all, delete-orphan')
+    reset_tokens = db.relationship('PasswordResetToken', backref='user', lazy=True, cascade='all, delete-orphan')
 
 class UMKM(db.Model):
     __tablename__ = 'umkm'
@@ -33,14 +36,14 @@ class UMKM(db.Model):
     longitude = db.Column(db.Float)
     address = db.Column(db.Text)
     phone = db.Column(db.String(20))
-    hours = db.Column(db.String(50))
-    is_approved = db.Column(db.Boolean, default=False)
+    hours = db.Column(db.String(50), default='09:00-17:00')
+    is_approved = db.Column(db.Boolean, default=True)  # Set default True untuk development
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    reviews = db.relationship('Review', backref='umkm', lazy=True)
-    favorites = db.relationship('Favorite', backref='umkm', lazy=True)
+    reviews = db.relationship('Review', backref='umkm', lazy=True, cascade='all, delete-orphan')
+    favorites = db.relationship('Favorite', backref='umkm', lazy=True, cascade='all, delete-orphan')
 
 class Review(db.Model):
     __tablename__ = 'reviews'
@@ -59,6 +62,9 @@ class Favorite(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     umkm_id = db.Column(db.Integer, db.ForeignKey('umkm.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Unique constraint untuk mencegah duplikasi favorite
+    __table_args__ = (db.UniqueConstraint('user_id', 'umkm_id', name='unique_user_umkm_favorite'),)
 
 class PasswordResetToken(db.Model):
     __tablename__ = 'password_reset_tokens'
@@ -71,43 +77,50 @@ class PasswordResetToken(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    """Hash password menggunakan bcrypt"""
+    try:
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    except Exception as e:
+        print(f"❌ Error hashing password: {e}")
+        raise e
 
 def check_password(password, hashed):
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    """Check password terhadap hash"""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception as e:
+        print(f"❌ Error checking password: {e}")
+        return False
 
 def create_tables():
-    print("🔧 Creating database tables...")
-    db.create_all()
-    print("✅ Database tables created!")
+    """Create database tables dengan error handling"""
+    try:
+        print("🔧 Creating database tables...")
+        db.create_all()
+        print("✅ Database tables created successfully!")
+        
+        # Check if tables were created
+        tables = ['users', 'umkm', 'reviews', 'favorites', 'password_reset_tokens']
+        for table in tables:
+            try:
+                db.session.execute(f"SELECT 1 FROM {table} LIMIT 1")
+                print(f"✅ Table {table} exists and accessible")
+            except Exception as e:
+                print(f"❌ Table {table} error: {e}")
+                
+    except Exception as e:
+        print(f"❌ Error creating database tables: {e}")
+        raise e
 
-# Tambahkan fungsi helper untuk kompatibilitas
+# Fungsi kompatibilitas untuk kode yang sudah ada
 def get_db_connection():
     """Helper function for compatibility with existing code"""
-    import sqlite3
-    from config import Config
-    conn = sqlite3.connect(Config.SQLITE_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-# Password reset token functions (simplified)
-def create_password_reset_token(user_id):
-    """Create password reset token - simplified version"""
-    import uuid
-    return str(uuid.uuid4())
-
-def verify_password_reset_token(token):
-    """Verify password reset token - simplified version"""
-    # For now, return a dummy user ID
-    return 1
-
-def mark_token_used(token):
-    """Mark token as used - simplified version"""
-    pass
-
-# Email service placeholder
-class EmailService:
-    def send_password_reset_email(self, email, token, name):
-        print(f"📧 Password reset email would be sent to: {email}")
-        print(f"🔑 Token: {token}")
-        return True
+    try:
+        from config import Config
+        import sqlite3
+        conn = sqlite3.connect(Config.SQLITE_DB)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception as e:
+        print(f"❌ Error in get_db_connection: {e}")
+        return None
