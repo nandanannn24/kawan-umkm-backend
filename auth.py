@@ -97,7 +97,7 @@ def login():
 def logout():
     return jsonify({'message': 'Logout successful'}), 200
 
-# ENDPOINT FORGOT PASSWORD - DIPERBAIKI
+# ENDPOINT FORGOT PASSWORD - DIPERBAIKI DENGAN ERROR HANDLING LEBIH BAIK
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     try:
@@ -107,6 +107,8 @@ def forgot_password():
         if not email:
             return jsonify({'error': 'Email is required'}), 400
 
+        print(f"📧 Processing forgot password for: {email}")
+
         user = User.query.filter_by(email=email).first()
         if not user:
             # Untuk keamanan, tetap return success meskipun email tidak ditemukan
@@ -115,12 +117,15 @@ def forgot_password():
                 'message': 'If your email is registered, you will receive a password reset link.'
             }), 200
 
-        print(f"📧 Creating reset token for user: {user.email}")
+        print(f"📧 User found: {user.name} ({user.email})")
         
         # Buat token reset password
         token = create_password_reset_token(user.id)
         if not token:
-            return jsonify({'error': 'Failed to create reset token'}), 500
+            print("❌ Failed to create reset token")
+            return jsonify({'error': 'Failed to create reset token. Please try again.'}), 500
+
+        print(f"✅ Reset token created: {token}")
 
         # Kirim email
         email_service = EmailService()
@@ -130,6 +135,8 @@ def forgot_password():
         reset_link = f"{frontend_url}/reset-password?token={token}"
         
         print(f"📧 Sending reset email to {user.email}")
+        print(f"🔗 Reset link: {reset_link}")
+        
         success = email_service.send_password_reset_email(
             user.email, 
             reset_link,
@@ -137,17 +144,19 @@ def forgot_password():
         )
 
         if success:
-            print(f"✅ Reset password email sent successfully to {user.email}")
+            print(f"✅ Reset password process completed successfully for {user.email}")
             return jsonify({
                 'message': 'If your email is registered, you will receive a password reset link.'
             }), 200
         else:
             print(f"❌ Failed to send reset email to {user.email}")
-            return jsonify({'error': 'Failed to send reset email. Please try again later.'}), 500
+            return jsonify({'error': 'Failed to send reset email. Please check your email configuration or try again later.'}), 500
 
     except Exception as e:
-        print(f"❌ Error in forgot-password: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        print(f"❌ CRITICAL ERROR in forgot-password: {str(e)}")
+        import traceback
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error. Please contact administrator.'}), 500
 
 # ENDPOINT RESET PASSWORD - DIPERBAIKI
 @auth_bp.route('/reset-password', methods=['POST'])
@@ -200,6 +209,39 @@ def check_token(token):
     except Exception as e:
         print(f"❌ Error verifying token: {str(e)}")
         return jsonify({'valid': False}), 400
+
+# ENDPOINT TEST EMAIL - UNTUK DEBUGGING
+@auth_bp.route('/test-email', methods=['POST'])
+def test_email():
+    """Endpoint untuk testing email service"""
+    try:
+        data = request.get_json()
+        test_email = data.get('email')
+        
+        if not test_email:
+            return jsonify({'error': 'Email is required'}), 400
+            
+        print(f"🧪 Testing email service with: {test_email}")
+        
+        email_service = EmailService()
+        
+        # Test dengan link dummy
+        test_link = "https://kawan-umkm-sekawanpapat.netlify.app/reset-password?token=test-token-123"
+        
+        success = email_service.send_password_reset_email(
+            test_email, 
+            test_link,
+            "Test User"
+        )
+        
+        if success:
+            return jsonify({'message': 'Test email sent successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to send test email. Check server logs for details.'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error in test-email: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 def token_required(f):
     from functools import wraps
