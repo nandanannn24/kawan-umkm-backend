@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify
 import jwt
 import datetime
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from config import Config
 from models import db, User, hash_password, check_password, PasswordResetToken
 from email_service import EmailService, create_password_reset_token, verify_password_reset_token, mark_token_used
+import traceback
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -19,20 +20,20 @@ def create_jwt_token(user_id, email, role):
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    name = data.get('name')
-    email = data.get('email')
-    password = data.get('password')
-    role = data.get('role', 'user')
-
-    if not name or not email or not password:
-        return jsonify({'error': 'Name, email, and password are required'}), 400
-
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({'error': 'Email already exists'}), 400
-
     try:
+        data = request.get_json()
+        name = data.get('name')
+        email = data.get('email')
+        password = data.get('password')
+        role = data.get('role', 'user')
+
+        if not name or not email or not password:
+            return jsonify({'error': 'Name, email, and password are required'}), 400
+
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({'error': 'Email already exists'}), 400
+
         hashed_password = hash_password(password)
         
         new_user = User(
@@ -63,41 +64,49 @@ def register():
         db.session.rollback()
         return jsonify({'error': 'Email already exists'}), 400
     except Exception as e:
+        print(f"❌ Error in register: {str(e)}")
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
 
-    if not email or not password:
-        return jsonify({'error': 'Email and password are required'}), 400
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
 
-    user = User.query.filter_by(email=email).first()
+        user = User.query.filter_by(email=email).first()
 
-    if user and check_password(password, user.password):
-        token = create_jwt_token(user.id, user.email, user.role)
-        return jsonify({
-            'message': 'Login successful',
-            'token': token,
-            'user': {
-                'id': user.id,
-                'name': user.name,
-                'email': user.email,
-                'role': user.role,
-                'created_at': user.created_at.isoformat() if user.created_at else None
-            }
-        }), 200
-    else:
-        return jsonify({'error': 'Invalid email or password'}), 401
+        if user and check_password(password, user.password):
+            token = create_jwt_token(user.id, user.email, user.role)
+            return jsonify({
+                'message': 'Login successful',
+                'token': token,
+                'user': {
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email,
+                    'role': user.role,
+                    'created_at': user.created_at.isoformat() if user.created_at else None
+                }
+            }), 200
+        else:
+            return jsonify({'error': 'Invalid email or password'}), 401
+            
+    except Exception as e:
+        print(f"❌ Error in login: {str(e)}")
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
     return jsonify({'message': 'Logout successful'}), 200
 
-# ENDPOINT FORGOT PASSWORD - DIPERBAIKI DENGAN ERROR HANDLING LEBIH BAIK
+# ENDPOINT FORGOT PASSWORD - DIPERBAIKI
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     try:
@@ -154,7 +163,6 @@ def forgot_password():
 
     except Exception as e:
         print(f"❌ CRITICAL ERROR in forgot-password: {str(e)}")
-        import traceback
         print(f"🔍 Stack trace: {traceback.format_exc()}")
         return jsonify({'error': 'Internal server error. Please contact administrator.'}), 500
 
@@ -193,6 +201,7 @@ def reset_password():
 
     except Exception as e:
         print(f"❌ Error in reset-password: {str(e)}")
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
 
@@ -210,50 +219,18 @@ def check_token(token):
         print(f"❌ Error verifying token: {str(e)}")
         return jsonify({'valid': False}), 400
 
-# ENDPOINT TEST EMAIL - UNTUK DEBUGGING
-@auth_bp.route('/test-email', methods=['POST'])
-def test_email():
-    """Endpoint untuk testing email service"""
-    try:
-        data = request.get_json()
-        test_email = data.get('email')
-        
-        if not test_email:
-            return jsonify({'error': 'Email is required'}), 400
-            
-        print(f"🧪 Testing email service with: {test_email}")
-        
-        email_service = EmailService()
-        
-        # Test dengan link dummy
-        test_link = "https://kawan-umkm-sekawanpapat.netlify.app/reset-password?token=test-token-123"
-        
-        success = email_service.send_password_reset_email(
-            test_email, 
-            test_link,
-            "Test User"
-        )
-        
-        if success:
-            return jsonify({'message': 'Test email sent successfully'}), 200
-        else:
-            return jsonify({'error': 'Failed to send test email. Check server logs for details.'}), 500
-            
-    except Exception as e:
-        print(f"❌ Error in test-email: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
 def token_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({'error': 'Token is missing'}), 401
-
         try:
+            token = request.headers.get('Authorization')
+            if not token:
+                return jsonify({'error': 'Token is missing'}), 401
+
             if token.startswith('Bearer '):
                 token = token[7:]
+                
             data = jwt.decode(token, Config.JWT_SECRET_KEY, algorithms=['HS256'])
             current_user = {
                 'id': data['user_id'],
@@ -264,6 +241,9 @@ def token_required(f):
             return jsonify({'error': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
             return jsonify({'error': 'Invalid token'}), 401
+        except Exception as e:
+            print(f"❌ Error in token_required: {str(e)}")
+            return jsonify({'error': 'Token validation failed'}), 401
 
         return f(current_user, *args, **kwargs)
 
