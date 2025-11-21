@@ -13,66 +13,51 @@ class EmailService:
         self.smtp_port = Config.SMTP_PORT
         self.sender_email = Config.EMAIL_USER
         self.sender_password = Config.EMAIL_PASSWORD
-        print(f"📧 EmailService initialized: {self.sender_email}, Server: {self.smtp_server}:{self.smtp_port}")
-        print(f"🔐 Email password set: {'✅ YES' if self.sender_password else '❌ NO'}")
+        print(f"📧 EmailService initialized: {self.sender_email}")
+        print(f"🔧 SMTP Server: {self.smtp_server}:{self.smtp_port}")
 
     def send_password_reset_email(self, user_email, reset_link, user_name):
         try:
-            # Validasi konfigurasi email lebih ketat
-            if not self.sender_email or not self.sender_password:
-                print("❌ Email configuration missing: EMAIL_USER or EMAIL_PASSWORD not set")
+            # Validasi konfigurasi email
+            if not all([self.sender_email, self.sender_password, self.smtp_server]):
+                print("❌ Email configuration missing")
                 return False
 
-            if not self.smtp_server or not self.smtp_port:
-                print("❌ SMTP configuration missing")
-                return False
-
-            print(f"🔧 Testing SMTP connection to {self.smtp_server}:{self.smtp_port}...")
+            print(f"📤 Preparing to send email to: {user_email}")
 
             subject = "🔐 Reset Password - Kawan UMKM"
             
-            # Sederhanakan template email untuk menghindari error
+            # Template email yang lebih sederhana
             html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>Reset Password</title>
-            </head>
-            <body style="font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px;">
-                <div style="max-width: 500px; background: white; border-radius: 10px; margin: 0 auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    <div style="background: linear-gradient(135deg, #9B4DFF 0%, #6CECF9 100%); padding: 20px; text-align: center; color: white;">
-                        <h1 style="margin: 0; font-size: 24px;">KAWAN UMKM</h1>
-                        <p style="margin: 5px 0 0 0;">Reset Password Request</p>
-                    </div>
-                    <div style="padding: 20px; color: #333; line-height: 1.6;">
-                        <h2 style="text-align: center;">Halo {user_name}!</h2>
-                        <p style="text-align: center;">Kami menerima permintaan reset password untuk akun Anda.</p>
-                        
-                        <div style="text-align: center; margin: 20px 0;">
-                            <a href="{reset_link}" style="display: inline-block; background: linear-gradient(135deg, #9B4DFF, #6CECF9); color: white; padding: 12px 24px; text-decoration: none; border-radius: 25px; font-weight: bold;">
-                                🔐 Reset Password
-                            </a>
-                        </div>
-                        
-                        <p style="text-align: center; color: #666;">
-                            Atau copy link berikut ke browser Anda:
-                        </p>
-                        <div style="background: #f5f5f5; padding: 10px; border-radius: 5px; word-break: break-all; font-family: monospace; font-size: 12px; margin: 10px 0;">
-                            {reset_link}
-                        </div>
-                        
-                        <p style="text-align: center; font-size: 12px; color: #888;">
-                            <strong>⏰ Penting:</strong> Link ini berlaku 1 jam.<br>
-                            Abaikan email ini jika Anda tidak meminta reset password.
-                        </p>
-                    </div>
-                    <div style="text-align: center; padding: 15px; color: #666; font-size: 12px; background: #f9f9f9;">
-                        <p>&copy; 2024 Kawan UMKM. All rights reserved.</p>
-                    </div>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center; color: white;">
+                    <h1>KAWAN UMKM</h1>
+                    <p>Reset Password Request</p>
                 </div>
-            </body>
-            </html>
+                <div style="padding: 20px; background: white;">
+                    <h2>Halo {user_name}!</h2>
+                    <p>Kami menerima permintaan reset password untuk akun Anda.</p>
+                    
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{reset_link}" style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                            Reset Password
+                        </a>
+                    </div>
+                    
+                    <p>Atau copy link berikut ke browser Anda:</p>
+                    <div style="background: #f5f5f5; padding: 10px; border-radius: 5px; word-break: break-all; font-family: monospace;">
+                        {reset_link}
+                    </div>
+                    
+                    <p style="color: #666; font-size: 14px; margin-top: 20px;">
+                        <strong>Penting:</strong> Link ini berlaku 1 jam.<br>
+                        Jika Anda tidak meminta reset password, abaikan email ini.
+                    </p>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; text-align: center; color: #666; font-size: 12px;">
+                    <p>&copy; 2024 Kawan UMKM. All rights reserved.</p>
+                </div>
+            </div>
             """
             
             text_content = f"""
@@ -80,7 +65,7 @@ Reset Password - Kawan UMKM
 
 Halo {user_name},
 
-Kami menerima permintaan reset password untuk akun Kawan UMKM Anda.
+Kami menerima permintaan reset password untuk akun Anda.
 
 Silakan klik link berikut untuk reset password:
 {reset_link}
@@ -93,56 +78,62 @@ Terima kasih,
 Tim Kawan UMKM
             """
             
+            # Create message
             msg = MIMEMultipart('alternative')
             msg['From'] = f"Kawan UMKM <{self.sender_email}>"
             msg['To'] = user_email
             msg['Subject'] = subject
             
+            # Attach both versions
             part1 = MIMEText(text_content, 'plain')
             part2 = MIMEText(html_content, 'html')
-            
             msg.attach(part1)
             msg.attach(part2)
             
-            print(f"📤 Attempting to send email to {user_email}...")
-            print(f"🔧 SMTP Config: {self.smtp_server}:{self.smtp_port}")
-            print(f"🔑 Using email: {self.sender_email}")
+            print(f"🔐 Attempting SMTP connection to {self.smtp_server}:{self.smtp_port}")
             
-            # Test connection dengan timeout dan error handling yang lebih baik
-            try:
-                server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=15)
-                print("✅ SMTP Connection established")
-                
-                server.starttls()
-                print("✅ TLS started")
-                
-                # Login dengan error handling
-                server.login(self.sender_email, self.sender_password)
-                print("✅ SMTP Login successful")
-                
-                # Send email
-                server.send_message(msg)
-                print("✅ Email sent successfully")
-                
-                server.quit()
-                print("✅ SMTP connection closed")
-                
-                print(f"✅ Reset password email sent to {user_email}")
-                return True
-                
-            except smtplib.SMTPAuthenticationError as e:
-                print(f"❌ SMTP Authentication failed: {str(e)}")
-                print("💡 Tips: Pastikan menggunakan App Password bukan password biasa untuk Gmail")
-                return False
-            except smtplib.SMTPException as e:
-                print(f"❌ SMTP Error: {str(e)}")
-                return False
-            except Exception as e:
-                print(f"❌ Connection error: {str(e)}")
-                return False
-                
+            # Create SMTP connection dengan timeout
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=20)
+            
+            # Debug: Test connection
+            print("✅ SMTP connection established")
+            
+            # Start TLS
+            server.starttls()
+            print("✅ TLS encryption started")
+            
+            # Login
+            print(f"🔑 Attempting login with: {self.sender_email}")
+            server.login(self.sender_email, self.sender_password)
+            print("✅ Login successful")
+            
+            # Send email
+            server.send_message(msg)
+            print("✅ Email sent successfully")
+            
+            # Close connection
+            server.quit()
+            print("✅ SMTP connection closed")
+            
+            print(f"🎉 Password reset email successfully sent to {user_email}")
+            return True
+            
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"❌ SMTP Authentication Failed: {str(e)}")
+            print("💡 Tips for Gmail:")
+            print("   1. Pastikan 2-Factor Authentication aktif")
+            print("   2. Gunakan App Password, bukan password biasa")
+            print("   3. App Password bisa dibuat di: https://myaccount.google.com/apppasswords")
+            return False
+            
+        except smtplib.SMTPException as e:
+            print(f"❌ SMTP Error: {str(e)}")
+            return False
+            
         except Exception as e:
-            print(f"❌ Unexpected error in send_password_reset_email: {str(e)}")
+            print(f"❌ Unexpected error: {str(e)}")
+            import traceback
+            print(f"🔍 Stack trace: {traceback.format_exc()}")
             return False
 
 def create_password_reset_token(user_id):
