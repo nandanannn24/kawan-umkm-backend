@@ -37,7 +37,7 @@ class UMKM(db.Model):
     address = db.Column(db.Text)
     phone = db.Column(db.String(20))
     hours = db.Column(db.String(50), default='09:00-17:00')
-    is_approved = db.Column(db.Boolean, default=True)  # Set default True untuk development
+    is_approved = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -99,14 +99,16 @@ def create_tables():
         db.create_all()
         print("✅ Database tables created successfully!")
         
-        # Check if tables were created
+        # Check if tables exist
         tables = ['users', 'umkm', 'reviews', 'favorites', 'password_reset_tokens']
+        inspector = db.inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+        
         for table in tables:
-            try:
-                db.session.execute(f"SELECT 1 FROM {table} LIMIT 1")
-                print(f"✅ Table {table} exists and accessible")
-            except Exception as e:
-                print(f"❌ Table {table} error: {e}")
+            if table in existing_tables:
+                print(f"✅ Table {table} exists")
+            else:
+                print(f"❌ Table {table} missing")
                 
     except Exception as e:
         print(f"❌ Error creating database tables: {e}")
@@ -116,7 +118,6 @@ def create_tables():
 def get_db_connection():
     """Helper function for compatibility with existing code"""
     try:
-        from config import Config
         import sqlite3
         conn = sqlite3.connect(Config.SQLITE_DB)
         conn.row_factory = sqlite3.Row
