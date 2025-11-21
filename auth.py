@@ -95,7 +95,7 @@ def login():
 def logout():
     return jsonify({'message': 'Logout successful'}), 200
 
-# ENDPOINT FORGOT PASSWORD - DIPERBAIKI
+# ENDPOINT FORGOT PASSWORD
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     try:
@@ -126,7 +126,7 @@ def forgot_password():
         
         success = email_service.send_password_reset_email(
             user.email, 
-            reset_link,  # Kirim full link, bukan hanya token
+            reset_link,
             user.name
         )
 
@@ -142,7 +142,7 @@ def forgot_password():
         print(f"❌ Error in forgot-password: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-# ENDPOINT RESET PASSWORD - DIPERBAIKI
+# ENDPOINT RESET PASSWORD
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     try:
@@ -177,7 +177,7 @@ def reset_password():
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
 
-# ENDPOINT VERIFY TOKEN - DIPERBAIKI
+# ENDPOINT VERIFY TOKEN
 @auth_bp.route('/check-token/<token>', methods=['GET'])
 def check_token(token):
     try:
