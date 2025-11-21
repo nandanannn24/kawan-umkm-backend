@@ -45,7 +45,8 @@ def create_app():
         return jsonify({
             'message': 'Kawan UMKM Backend API',
             'status': 'running',
-            'version': '1.0.0'
+            'version': '1.0.0',
+            'database': 'SQLite'
         })
     
     @app.route('/health')
@@ -55,13 +56,13 @@ def create_app():
             db.session.execute('SELECT 1')
             return jsonify({
                 'status': 'healthy', 
-                'database': 'connected',
+                'database': 'SQLite - connected',
                 'service': 'Kawan UMKM API'
             })
         except Exception as e:
             return jsonify({
                 'status': 'degraded', 
-                'database': 'disconnected',
+                'database': 'SQLite - error',
                 'error': str(e),
                 'service': 'Kawan UMKM API'
             }), 500
@@ -86,4 +87,5 @@ app = create_app()
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 Starting Kawan UMKM Backend on port {port}...")
+    print(f"🗄️ Database: SQLite ({Config.SQLITE_DB})")
     app.run(host='0.0.0.0', port=port, debug=False)
