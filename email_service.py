@@ -17,6 +17,11 @@ class EmailService:
 
     def send_password_reset_email(self, user_email, reset_link, user_name):
         try:
+            # Validasi konfigurasi email
+            if not all([self.sender_email, self.sender_password, self.smtp_server]):
+                print("❌ Email configuration missing")
+                return False
+
             subject = "🔐 Reset Password - Kawan UMKM"
             
             html_content = f"""
@@ -27,53 +32,62 @@ class EmailService:
                 <style>
                     body {{
                         font-family: 'Arial', sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        background: #f4f4f4;
                         margin: 0;
                         padding: 20px;
                     }}
                     .container {{
                         max-width: 500px;
                         background: white;
-                        border-radius: 20px;
+                        border-radius: 10px;
                         overflow: hidden;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                         margin: 0 auto;
                     }}
                     .header {{
                         background: linear-gradient(135deg, #9B4DFF 0%, #6CECF9 100%);
-                        padding: 40px 30px;
+                        padding: 30px 20px;
                         text-align: center;
                         color: white;
                     }}
                     .logo {{
-                        font-size: 36px;
+                        font-size: 28px;
                         font-weight: bold;
                         margin-bottom: 10px;
                     }}
                     .content {{
-                        padding: 40px 30px;
+                        padding: 30px 20px;
                         color: #333;
                         line-height: 1.6;
                     }}
                     .button {{
                         display: block;
                         width: 200px;
-                        margin: 30px auto;
-                        padding: 15px 30px;
+                        margin: 20px auto;
+                        padding: 12px 24px;
                         background: linear-gradient(135deg, #9B4DFF, #6CECF9);
                         color: white;
                         text-decoration: none;
-                        border-radius: 30px;
+                        border-radius: 25px;
                         text-align: center;
                         font-weight: bold;
-                        font-size: 16px;
+                        font-size: 14px;
                     }}
                     .footer {{
                         text-align: center;
-                        padding: 30px;
+                        padding: 20px;
                         color: #666;
-                        font-size: 14px;
+                        font-size: 12px;
                         background: #f9f9f9;
+                    }}
+                    .code {{
+                        background: #f5f5f5;
+                        padding: 10px;
+                        border-radius: 5px;
+                        word-break: break-all;
+                        font-family: monospace;
+                        font-size: 12px;
+                        margin: 10px 0;
                     }}
                 </style>
             </head>
@@ -87,16 +101,16 @@ class EmailService:
                         <h2 style="text-align: center;">Halo {user_name}!</h2>
                         <p style="text-align: center;">Kami menerima permintaan reset password untuk akun Anda.</p>
                         
-                        <a href="{reset_link}" class="button">🔐 Reset Password Saya</a>
+                        <a href="{reset_link}" class="button">🔐 Reset Password</a>
                         
                         <p style="text-align: center; color: #666;">
-                            Atau copy link berikut ke browser Anda:<br>
-                            <code style="background: #f5f5f5; padding: 10px; border-radius: 5px; word-break: break-all;">{reset_link}</code>
+                            Atau copy link berikut ke browser Anda:
                         </p>
+                        <div class="code">{reset_link}</div>
                         
-                        <p style="text-align: center;">
-                            <strong>⏰ Penting:</strong> Link ini akan kadaluarsa dalam 1 jam.<br>
-                            Jika Anda tidak meminta reset password, abaikan email ini.
+                        <p style="text-align: center; font-size: 12px; color: #888;">
+                            <strong>⏰ Penting:</strong> Link ini berlaku 1 jam.<br>
+                            Abaikan email ini jika Anda tidak meminta reset password.
                         </p>
                     </div>
                     <div class="footer">
@@ -117,7 +131,7 @@ class EmailService:
             Silakan klik link berikut untuk reset password:
             {reset_link}
             
-            Link ini akan kadaluarsa dalam 1 jam.
+            Link ini berlaku 1 jam.
             
             Jika Anda tidak meminta reset password, abaikan email ini.
             
@@ -137,16 +151,31 @@ class EmailService:
             msg.attach(part2)
             
             print(f"📤 Attempting to send email to {user_email}...")
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
+            print(f"🔧 SMTP Config: {self.smtp_server}:{self.smtp_port}")
+            
+            # Test connection dengan timeout
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10)
+            server.starttls()
+            
+            # Login dengan error handling
+            try:
                 server.login(self.sender_email, self.sender_password)
-                server.send_message(msg)
+                print("✅ SMTP Login successful")
+            except smtplib.SMTPAuthenticationError:
+                print("❌ SMTP Authentication failed - check email/password")
+                return False
+                
+            server.send_message(msg)
+            server.quit()
             
             print(f"✅ Reset password email sent to {user_email}")
             return True
             
+        except smtplib.SMTPException as e:
+            print(f"❌ SMTP Error: {str(e)}")
+            return False
         except Exception as e:
-            print(f"❌ Error sending email to {user_email}: {str(e)}")
+            print(f"❌ Error sending email: {str(e)}")
             return False
 
 def create_password_reset_token(user_id):
@@ -186,11 +215,14 @@ def verify_password_reset_token(token):
         ).first()
         
         if not reset_token:
+            print(f"❌ Token not found or already used: {token}")
             return None
             
         if reset_token.expires_at < datetime.utcnow():
+            print(f"❌ Token expired: {token}")
             return None
             
+        print(f"✅ Token valid for user {reset_token.user_id}")
         return reset_token.user_id
         
     except Exception as e:
