@@ -54,7 +54,8 @@ def register():
                 'id': new_user.id,
                 'name': new_user.name,
                 'email': new_user.email,
-                'role': new_user.role
+                'role': new_user.role,
+                'created_at': new_user.created_at.isoformat() if new_user.created_at else None
             }
         }), 201
         
@@ -85,7 +86,8 @@ def login():
                 'id': user.id,
                 'name': user.name,
                 'email': user.email,
-                'role': user.role
+                'role': user.role,
+                'created_at': user.created_at.isoformat() if user.created_at else None
             }
         }), 200
     else:
@@ -95,7 +97,7 @@ def login():
 def logout():
     return jsonify({'message': 'Logout successful'}), 200
 
-# ENDPOINT FORGOT PASSWORD
+# ENDPOINT FORGOT PASSWORD - DIPERBAIKI
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     try:
@@ -108,10 +110,13 @@ def forgot_password():
         user = User.query.filter_by(email=email).first()
         if not user:
             # Untuk keamanan, tetap return success meskipun email tidak ditemukan
+            print(f"📧 User with email {email} not found, but returning success for security")
             return jsonify({
                 'message': 'If your email is registered, you will receive a password reset link.'
             }), 200
 
+        print(f"📧 Creating reset token for user: {user.email}")
+        
         # Buat token reset password
         token = create_password_reset_token(user.id)
         if not token:
@@ -124,6 +129,7 @@ def forgot_password():
         frontend_url = 'https://kawan-umkm-sekawanpapat.netlify.app'
         reset_link = f"{frontend_url}/reset-password?token={token}"
         
+        print(f"📧 Sending reset email to {user.email}")
         success = email_service.send_password_reset_email(
             user.email, 
             reset_link,
@@ -131,18 +137,19 @@ def forgot_password():
         )
 
         if success:
-            print(f"✅ Reset password email sent to {user.email}")
+            print(f"✅ Reset password email sent successfully to {user.email}")
             return jsonify({
                 'message': 'If your email is registered, you will receive a password reset link.'
             }), 200
         else:
-            return jsonify({'error': 'Failed to send reset email. Please try again.'}), 500
+            print(f"❌ Failed to send reset email to {user.email}")
+            return jsonify({'error': 'Failed to send reset email. Please try again later.'}), 500
 
     except Exception as e:
         print(f"❌ Error in forgot-password: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-# ENDPOINT RESET PASSWORD
+# ENDPOINT RESET PASSWORD - DIPERBAIKI
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     try:
@@ -153,6 +160,8 @@ def reset_password():
         if not token or not new_password:
             return jsonify({'error': 'Token and new password are required'}), 400
 
+        print(f"🔑 Verifying reset token: {token}")
+        
         # Verifikasi token
         user_id = verify_password_reset_token(token)
         if not user_id:
@@ -170,6 +179,7 @@ def reset_password():
         # Tandai token sebagai sudah digunakan
         mark_token_used(token)
 
+        print(f"✅ Password reset successful for user: {user.email}")
         return jsonify({'message': 'Password reset successfully'}), 200
 
     except Exception as e:
@@ -177,10 +187,11 @@ def reset_password():
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
 
-# ENDPOINT VERIFY TOKEN
+# ENDPOINT VERIFY TOKEN - DIPERBAIKI
 @auth_bp.route('/check-token/<token>', methods=['GET'])
 def check_token(token):
     try:
+        print(f"🔍 Checking token validity: {token}")
         user_id = verify_password_reset_token(token)
         if user_id:
             return jsonify({'valid': True, 'user_id': user_id}), 200
