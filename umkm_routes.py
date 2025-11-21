@@ -3,6 +3,8 @@ import uuid
 from flask import Blueprint, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from models import db, UMKM, User, Review
+import jwt
+from config import Config
 
 umkm_bp = Blueprint('umkm', __name__)
 
@@ -15,6 +17,19 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# Fungsi untuk verifikasi token
+def get_current_user():
+    token = request.headers.get('Authorization')
+    if not token or not token.startswith('Bearer '):
+        return None
+    
+    try:
+        token = token[7:]
+        data = jwt.decode(token, Config.JWT_SECRET_KEY, algorithms=['HS256'])
+        return User.query.get(data['user_id'])
+    except:
+        return None
+
 # Routes
 @umkm_bp.route('/umkm', methods=['GET', 'POST', 'OPTIONS'])
 def handle_umkm():
@@ -23,7 +38,7 @@ def handle_umkm():
     elif request.method == 'POST':
         return create_umkm()
     elif request.method == 'OPTIONS':
-        return '', 200  # Handle preflight
+        return '', 200
 
 def get_all_umkm():
     try:
@@ -32,13 +47,11 @@ def get_all_umkm():
         result = []
         
         for umkm in umkms:
-            # Calculate average rating
             reviews = Review.query.filter_by(umkm_id=umkm.id).all()
             avg_rating = 0
             if reviews:
                 avg_rating = sum(review.rating for review in reviews) / len(reviews)
             
-            # PERBAIKAN: Gunakan base URL yang dinamis
             base_url = request.host_url.rstrip('/')
             image_url = f"{base_url}api/uploads/images/{umkm.image_path}" if umkm.image_path else None
             
@@ -56,6 +69,7 @@ def get_all_umkm():
                 'hours': umkm.hours,
                 'avg_rating': round(avg_rating, 1),
                 'review_count': len(reviews),
+                'owner_id': umkm.owner_id,
                 'created_at': umkm.created_at.isoformat() if umkm.created_at else None
             })
         
@@ -70,7 +84,10 @@ def create_umkm():
     try:
         print("📥 Received UMKM creation request")
         
-        # Check if image file is provided
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Unauthorized'}), 401
+        
         if 'image' not in request.files:
             print("❌ No image file in request")
             return jsonify({'error': 'No image file provided'}), 400
@@ -81,11 +98,9 @@ def create_umkm():
             print("❌ Empty filename")
             return jsonify({'error': 'No selected file'}), 400
         
-        # Validate file type
         if not allowed_file(file.filename):
             return jsonify({'error': 'File type not allowed. Use PNG, JPG, JPEG, GIF, or WebP.'}), 400
         
-        # Save image
         file_ext = file.filename.rsplit('.', 1)[1].lower()
         unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
@@ -93,9 +108,8 @@ def create_umkm():
         
         print(f"✅ Image saved: {unique_filename}")
         
-        # Get form data
         umkm_data = {
-            'owner_id': 1,
+            'owner_id': current_user.id,
             'name': request.form.get('name'),
             'category': request.form.get('category'),
             'description': request.form.get('description', ''),
@@ -108,20 +122,17 @@ def create_umkm():
             'is_approved': True
         }
         
-        # Validate required fields
         required_fields = ['name', 'category', 'address', 'phone']
         for field in required_fields:
             if not umkm_data.get(field):
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
-        # Create UMKM
         new_umkm = UMKM(**umkm_data)
         db.session.add(new_umkm)
         db.session.commit()
         
         print(f"✅ UMKM created successfully: {new_umkm.id}")
         
-        # Build response dengan URL dinamis
         base_url = request.host_url.rstrip('/')
         image_url = f"{base_url}api/uploads/images/{new_umkm.image_path}"
         
@@ -137,6 +148,7 @@ def create_umkm():
             'latitude': new_umkm.latitude,
             'longitude': new_umkm.longitude,
             'hours': new_umkm.hours,
+            'owner_id': new_umkm.owner_id,
             'avg_rating': 0,
             'review_count': 0,
             'created_at': new_umkm.created_at.isoformat() if new_umkm.created_at else None
@@ -152,26 +164,59 @@ def create_umkm():
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
+# ENDPOINT DELETE UMKM - TAMBAHAN BARU
+@umkm_bp.route('/umkm/<int:id>', methods=['DELETE', 'OPTIONS'])
+def delete_umkm(id):
+    if request.method == 'OPTIONS':
+        return '', 200
+        
+    try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        umkm = UMKM.query.get(id)
+        if not umkm:
+            return jsonify({'error': 'UMKM not found'}), 404
+        
+        # Cek apakah user adalah pemilik UMKM atau admin
+        if umkm.owner_id != current_user.id and current_user.role != 'admin':
+            return jsonify({'error': 'You can only delete your own UMKM'}), 403
+        
+        # Hapus file gambar jika ada
+        if umkm.image_path:
+            image_path = os.path.join(UPLOAD_FOLDER, umkm.image_path)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                print(f"✅ Deleted image file: {umkm.image_path}")
+        
+        # Hapus UMKM dari database
+        db.session.delete(umkm)
+        db.session.commit()
+        
+        print(f"✅ UMKM deleted successfully: {id}")
+        return jsonify({'message': 'UMKM deleted successfully'}), 200
+        
+    except Exception as e:
+        print(f"❌ Error deleting UMKM {id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
 @umkm_bp.route('/umkm/<int:id>', methods=['GET', 'OPTIONS'])
 def get_umkm_by_id(id):
     if request.method == 'OPTIONS':
         return '', 200
         
     try:
-        print(f"🔍 Fetching UMKM with ID: {id}")
-        
         umkm = UMKM.query.get(id)
         if not umkm:
-            print(f"❌ UMKM with ID {id} not found")
             return jsonify({'error': 'UMKM not found'}), 404
         
-        # Calculate average rating and reviews
         reviews = Review.query.filter_by(umkm_id=id).all()
         avg_rating = 0
         if reviews:
             avg_rating = sum(review.rating for review in reviews) / len(reviews)
         
-        # Build response dengan URL dinamis
         base_url = request.host_url.rstrip('/')
         image_url = f"{base_url}api/uploads/images/{umkm.image_path}" if umkm.image_path else None
         
@@ -188,13 +233,13 @@ def get_umkm_by_id(id):
             'latitude': umkm.latitude,
             'longitude': umkm.longitude,
             'hours': umkm.hours,
+            'owner_id': umkm.owner_id,
             'owner_name': umkm.owner.name if umkm.owner else 'Tidak diketahui',
             'avg_rating': round(avg_rating, 1),
             'review_count': len(reviews),
             'created_at': umkm.created_at.isoformat() if umkm.created_at else None
         }
         
-        print(f"✅ UMKM found: {umkm_response['name']}")
         return jsonify(umkm_response)
         
     except Exception as e:
@@ -212,7 +257,50 @@ def serve_image(filename):
         print(f"❌ Error serving image {filename}: {str(e)}")
         return jsonify({'error': 'Image not found'}), 404
 
-# Endpoint untuk reviews
+# Endpoint untuk mendapatkan UMKM milik user
+@umkm_bp.route('/my-umkm', methods=['GET', 'OPTIONS'])
+def get_my_umkm():
+    if request.method == 'OPTIONS':
+        return '', 200
+        
+    try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        umkms = UMKM.query.filter_by(owner_id=current_user.id).all()
+        result = []
+        
+        for umkm in umkms:
+            reviews = Review.query.filter_by(umkm_id=umkm.id).all()
+            avg_rating = 0
+            if reviews:
+                avg_rating = sum(review.rating for review in reviews) / len(reviews)
+            
+            base_url = request.host_url.rstrip('/')
+            image_url = f"{base_url}api/uploads/images/{umkm.image_path}" if umkm.image_path else None
+            
+            result.append({
+                'id': umkm.id,
+                'name': umkm.name,
+                'description': umkm.description,
+                'category': umkm.category,
+                'address': umkm.address,
+                'contact': umkm.phone,
+                'image_url': image_url,
+                'image_path': umkm.image_path,
+                'avg_rating': round(avg_rating, 1),
+                'review_count': len(reviews),
+                'created_at': umkm.created_at.isoformat() if umkm.created_at else None
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"❌ Error fetching user UMKM: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# Endpoint untuk reviews (tetap sama)
 @umkm_bp.route('/umkm/<int:id>/reviews', methods=['GET', 'POST', 'OPTIONS'])
 def handle_reviews(id):
     if request.method == 'OPTIONS':
@@ -224,7 +312,6 @@ def handle_reviews(id):
 
 def get_umkm_reviews(id):
     try:
-        print(f"🔍 Fetching reviews for UMKM {id}")
         reviews = Review.query.filter_by(umkm_id=id).join(User).all()
         
         reviews_data = []
@@ -238,7 +325,6 @@ def get_umkm_reviews(id):
                 'created_at': review.created_at.isoformat() if review.created_at else None
             })
         
-        print(f"✅ Found {len(reviews_data)} reviews")
         return jsonify(reviews_data)
         
     except Exception as e:
@@ -247,18 +333,18 @@ def get_umkm_reviews(id):
 
 def add_umkm_review(id):
     try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Unauthorized'}), 401
+            
         data = request.get_json()
-        print(f"📥 Adding review for UMKM {id}:", data)
         
-        # Validate required fields
         if not data.get('rating') or not data.get('comment'):
             return jsonify({'error': 'Rating and comment are required'}), 400
         
-        user_id = 1  # Temporary
-        
         new_review = Review(
             umkm_id=id,
-            user_id=user_id,
+            user_id=current_user.id,
             rating=data['rating'],
             comment=data['comment']
         )
@@ -266,7 +352,6 @@ def add_umkm_review(id):
         db.session.add(new_review)
         db.session.commit()
         
-        print("✅ Review added successfully")
         return jsonify({'message': 'Review added successfully'}), 201
         
     except Exception as e:
