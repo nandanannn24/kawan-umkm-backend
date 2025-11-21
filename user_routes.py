@@ -3,6 +3,7 @@ from auth import token_required
 from models import db, User, Favorite, Review, hash_password, check_password
 from datetime import datetime
 import os
+import traceback
 
 user_bp = Blueprint('user', __name__)
 
@@ -12,7 +13,10 @@ def format_join_date(created_at):
         if created_at:
             # Handle both string and datetime objects
             if isinstance(created_at, str):
-                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                # Remove timezone info if present
+                if 'Z' in created_at:
+                    created_at = created_at.replace('Z', '+00:00')
+                created_at = datetime.fromisoformat(created_at)
             
             month_names = [
                 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -30,13 +34,25 @@ def format_join_date(created_at):
 @token_required
 def get_user_profile(current_user):
     try:
+        print(f"🔍 Fetching profile for user ID: {current_user['id']}")
+        
         user = User.query.get(current_user['id'])
         if not user:
+            print(f"❌ User not found for ID: {current_user['id']}")
             return jsonify({'error': 'User not found'}), 404
 
-        # Get stats using SQLAlchemy
-        favorite_count = Favorite.query.filter_by(user_id=current_user['id']).count()
-        review_count = Review.query.filter_by(user_id=current_user['id']).count()
+        # Get stats menggunakan try-except untuk setiap query
+        try:
+            favorite_count = Favorite.query.filter_by(user_id=current_user['id']).count()
+        except Exception as e:
+            print(f"❌ Error counting favorites: {e}")
+            favorite_count = 0
+
+        try:
+            review_count = Review.query.filter_by(user_id=current_user['id']).count()
+        except Exception as e:
+            print(f"❌ Error counting reviews: {e}")
+            review_count = 0
 
         user_data = {
             'id': user.id,
@@ -50,29 +66,32 @@ def get_user_profile(current_user):
             'created_at': user.created_at.isoformat() if user.created_at else None
         }
 
+        print(f"✅ Profile data retrieved for: {user.email}")
         return jsonify(user_data), 200
+
     except Exception as e:
         print(f"❌ Error getting profile: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @user_bp.route('/profile', methods=['PUT'])
 @token_required
 def update_user_profile(current_user):
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-        
-    name = data.get('name', '').strip()
-    email = data.get('email', '').strip().lower()
-
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
-        
-    if not email:
-        return jsonify({'error': 'Email is required'}), 400
-
     try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip().lower()
+
+        if not name:
+            return jsonify({'error': 'Name is required'}), 400
+            
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
         user = User.query.get(current_user['id'])
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -92,8 +111,15 @@ def update_user_profile(current_user):
         db.session.commit()
 
         # Get updated stats
-        favorite_count = Favorite.query.filter_by(user_id=current_user['id']).count()
-        review_count = Review.query.filter_by(user_id=current_user['id']).count()
+        try:
+            favorite_count = Favorite.query.filter_by(user_id=current_user['id']).count()
+        except:
+            favorite_count = 0
+            
+        try:
+            review_count = Review.query.filter_by(user_id=current_user['id']).count()
+        except:
+            review_count = 0
 
         user_response = {
             'id': user.id,
@@ -114,23 +140,24 @@ def update_user_profile(current_user):
         
     except Exception as e:
         print(f"❌ Error updating profile: {e}")
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
         db.session.rollback()
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @user_bp.route('/change-password', methods=['POST'])
 @token_required
 def change_user_password(current_user):
-    data = request.get_json()
-    current_password = data.get('currentPassword')
-    new_password = data.get('newPassword')
-
-    if not current_password or not new_password:
-        return jsonify({'error': 'Current password and new password are required'}), 400
-
-    if len(new_password) < 6:
-        return jsonify({'error': 'New password must be at least 6 characters'}), 400
-
     try:
+        data = request.get_json()
+        current_password = data.get('currentPassword')
+        new_password = data.get('newPassword')
+
+        if not current_password or not new_password:
+            return jsonify({'error': 'Current password and new password are required'}), 400
+
+        if len(new_password) < 6:
+            return jsonify({'error': 'New password must be at least 6 characters'}), 400
+
         user = User.query.get(current_user['id'])
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -148,5 +175,6 @@ def change_user_password(current_user):
         
     except Exception as e:
         print(f"❌ Error changing password: {e}")
+        print(f"🔍 Stack trace: {traceback.format_exc()}")
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
