@@ -1,8 +1,9 @@
 from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
 from config import Config
-from models import db, create_tables, UMKM, Review
+from models import db, create_tables
 import os
+import pymysql
 
 # Import blueprints
 from auth import auth_bp
@@ -13,7 +14,7 @@ from admin_routes import admin_bp
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Konfigurasi CORS yang lengkap
+# Konfigurasi CORS
 CORS(app, 
      origins=[
          "https://kawan-umkm-sekawanpapat.netlify.app",
@@ -31,10 +32,14 @@ db.init_app(app)
 # Create uploads directory
 os.makedirs('uploads/images', exist_ok=True)
 
-# Create tables within app context
+# Create tables within app context dengan error handling
 with app.app_context():
-    create_tables()
-    print("✅ Database initialized!")
+    try:
+        create_tables()
+        print("✅ Database tables created successfully")
+    except Exception as e:
+        print(f"❌ Error creating database tables: {e}")
+        print("💡 Trying to continue without database tables...")
 
 # Register blueprints dengan url_prefix
 app.register_blueprint(auth_bp, url_prefix='/api')
@@ -42,28 +47,33 @@ app.register_blueprint(umkm_bp, url_prefix='/api')
 app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(admin_bp, url_prefix='/api')
 
-# Handler untuk after request
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', 'https://kawan-umkm-sekawanpapat.netlify.app')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
-
 # Route untuk health check
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy', 'database': 'SQLite'})
+    try:
+        # Test database connection
+        db.session.execute('SELECT 1')
+        return jsonify({
+            'status': 'healthy', 
+            'database': 'connected',
+            'service': 'Kawan UMKM API'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'degraded', 
+            'database': 'disconnected',
+            'error': str(e),
+            'service': 'Kawan UMKM API'
+        }), 500
 
 @app.route('/')
 def hello():
     return jsonify({
         'message': 'Kawan UMKM Backend API',
         'version': '1.0.0',
-        'database': 'SQLite',
+        'database': 'MySQL' if 'mysql' in Config.SQLALCHEMY_DATABASE_URI else 'SQLite',
         'endpoints': {
-            'auth': '/api/register, /api/login',
+            'auth': '/api/register, /api/login, /api/forgot-password',
             'umkm': '/api/umkm',
             'user': '/api/user/profile, /api/profile',
             'admin': '/api/admin/*'
@@ -85,13 +95,9 @@ def internal_error(error):
 
 if __name__ == '__main__':
     print("🚀 Starting Kawan UMKM Backend...")
-    print("📊 Database: SQLite")
-    print("🌐 Server: http://localhost:5000")
-    
-    # Print registered routes for debugging
-    print("🛣️ Registered routes:")
-    for rule in app.url_map.iter_rules():
-        if 'static' not in rule.rule:
-            print(f"  {rule.methods} {rule.rule}")
+    print("📊 Database Configuration:")
+    print(f"   Type: {'MySQL' if 'mysql' in Config.SQLALCHEMY_DATABASE_URI else 'SQLite'}")
+    print(f"   Host: {Config.MYSQL_HOST}")
+    print(f"   Database: {Config.MYSQL_DB}")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
